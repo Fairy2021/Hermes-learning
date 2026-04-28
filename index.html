@@ -794,8 +794,82 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s07</span><h1>提示词系统</h1><span class="tag tag-system">系统加固</span></div>
 <p class="meta">按需组装，注入检测，安全第一<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">agent/prompt_builder.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>系统提示不是一段固定的文字，而是由多个模块按需拼装的动态结构。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s07','learn')">学习</button>
+<button class="tab-btn" onclick="switchTab('s07','source')">源码</button>
+</div>
+
+<div class="tab-content active" id="tab-s07-learn">
+<div class="prose">
+
+<h2>提示词组装架构</h2>
+<p>Claude Code 的系统提示是整体硬编码的。Hermes 的提示词由 <code>agent/prompt_builder.py</code> 中的多个模块函数<strong>动态组装</strong>：</p>
+<pre><code>System Prompt = 身份描述（DEFAULT_AGENT_IDENTITY）
+              + 平台提示（PLATFORM_HINTS）
+              + 技能目录（Skills available: ...）
+              + 记忆指导（MEMORY_GUIDANCE）
+              + 会话搜索指导（SESSION_SEARCH_GUIDANCE）
+              + 技能使用指导（SKILLS_GUIDANCE）
+              + 上下文文件（AGENTS.md / .cursorrules / .hermes.md）
+              + 用户记忆（&lt;memory-context&gt;）
+              + 临时提示（ephemeral_system_prompt）</code></pre>
+
+<h2>上下文文件安全扫描</h2>
+<p>自动发现项目根目录下的 <code>.hermes.md</code> / <code>AGENTS.md</code> / <code>.cursorrules</code>，但执行严格扫描：</p>
+<pre><code># 14 种威胁模式
+_CONTEXT_THREAT_PATTERNS = [
+    (r'ignore\s+(previous|all|above|prior)\s+instructions', "prompt_injection"),
+    (r'do\s+not\s+tell\s+the\s+user', "deception_hide"),
+    (r'system\s+prompt\s+override', "sys_prompt_override"),
+    (r'curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET)', "exfil_curl"),
+    (r'cat\s+[^\n]*(\.env|credentials)', "read_secrets"),
+    (r'\u200b', "zero-width-space"),  # 隐形 Unicode
+]
+
+# 检测到威胁 → 替换为 [BLOCKED: ...] 提示
+if findings:
+    return f"[BLOCKED: {filename} contained potential prompt injection]"</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>组装方式</td><td class="hermes">多模块函数动态拼接</td><td>整段硬编码</td></tr>
+<tr><td>上下文文件</td><td class="hermes">自动发现 .hermes.md / AGENTS.md / .cursorrules，带注入检测</td><td>手动配置 CLAUDE.md</td></tr>
+<tr><td>平台提示</td><td class="hermes">PLATFORM_HINTS 字典，Feishu/Discord/Telegram 各有专属提示</td><td>纯 CLI 无区别</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
+<div class="tab-content" id="tab-s07-source">
+<div class="prose">
+<h2>核心函数：_build_system_prompt</h2>
+<pre><code>def _build_system_prompt(self, system_message=None):
+    parts = []
+    # 1. 基础身份
+    parts.append(DEFAULT_AGENT_IDENTITY)
+    # 2. 平台特定提示
+    if self.platform and self.platform in PLATFORM_HINTS:
+        parts.append(PLATFORM_HINTS[self.platform])
+    # 3. WSL 提示
+    if is_wsl():
+        parts.append("You are running in WSL...")
+    # 4. 技能目录
+    parts.append("Skills available:\n" + describe_skills())
+    # 5. 上下文文件（带安全扫描）
+    for path in find_context_files(cwd):
+        safe = scan_for_injection(path.read_text(), path.name)
+        parts.append(f"&lt;context file={path.name}&gt;\n{safe}")
+    # 6. 记忆
+    memory = self._memory_manager.build_system_prompt()
+    if memory: parts.append(memory)
+    return "\n\n".join(parts)</code></pre>
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s06')"><span>←</span><div><div class="label">上一章</div><div class="title">上下文压缩 — s06</div></div></a>
 <a onclick="switchSection('s08')" style="text-align:right"><div><div class="label">下一章</div><div class="title">记忆系统 — s08</div></div><span>→</span></a>
@@ -806,8 +880,91 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s08</span><h1>记忆系统</h1><span class="tag tag-system">系统加固</span></div>
 <p class="meta">可插拔，多 Provider，上下文栅栏<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">agent/memory_manager.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Claude Code 的记忆是内置的，Hermes 的记忆是可插拔、可扩展的。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s08','learn')">学习</button>
+<button class="tab-btn" onclick="switchTab('s08','source')">源码</button>
+</div>
+
+<div class="tab-content active" id="tab-s08-learn">
+<div class="prose">
+
+<h2>MemoryManager 设计</h2>
+<p>Hermes 的记忆系统由 <code>agent/memory_manager.py</code> 中的 <code>MemoryManager</code> 统一管理：</p>
+<pre><code>class MemoryManager:
+    def __init__(self):
+        self.providers = []
+        self._has_external = False  # 最多一个外部 Provider
+
+    def add_provider(self, provider):
+        if not provider.is_builtin and self._has_external:
+            return  # 拒绝第二个外部 Provider
+        self.providers.append(provider)
+        if not provider.is_builtin:
+            self._has_external = True
+
+    def prefetch_all(self, user_message):
+        # 预取记忆，构建 &lt;memory-context&gt; 块
+        return "\n".join(p.prefetch(user_message) for p in self.providers)
+
+    def sync_all(self, user_msg, assistant_response):
+        for p in self.providers:
+            p.sync(user_msg, assistant_response)</code></pre>
+
+<h2>上下文栅栏与流式擦除</h2>
+<p>记忆内容通过 <code>&lt;memory-context&gt;</code> 标签注入，但必须在模型输出中剥离：</p>
+<pre><code># 一次性清理
+def sanitize_context(text):
+    text = re.sub(r'&lt;/?\s*memory-context\s*&gt;', '', text, flags=re.I)
+    text = re.sub(r'\[System note:.*?Treat as informational background data\.\]', '', text, flags=re.I)
+    return text
+
+# 流式清理（跨 chunk 状态机）
+class StreamingContextScrubber:
+    """处理 &lt;memory-context&gt; 可能跨多个 chunk 的情况"""
+    def feed(self, delta):
+        # 状态机：outside → inside → outside
+        # inside 状态时丢弃所有内容，直到遇到 &lt;/memory-context&gt;
+        return visible_text</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>架构</td><td class="hermes">MemoryManager + 多个 MemoryProvider</td><td>内置不可扩展</td></tr>
+<tr><td>Provider</td><td class="hermes">内置 + Honcho + Mem0 + Supermemory</td><td>仅 Anthropic 内置</td></tr>
+<tr><td>自动回顾</td><td class="hermes">每 N 轮自动提示查阅记忆（可配置间隔）</td><td>无自动回顾</td></tr>
+<tr><td>流式保护</td><td class="hermes">StreamingContextScrubber 状态机跨 chunk 保护</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
+<div class="tab-content" id="tab-s08-source">
+<div class="prose">
+<h2>集成到 Agent 循环</h2>
+<pre><code># AIAgent.__init__
+self._memory_manager = MemoryManager()
+self._memory_manager.add_provider(BuiltinMemoryProvider())
+
+# 每轮对话：
+# 1. 构建系统提示时注入记忆块
+prompt_parts.append(self._memory_manager.build_system_prompt())
+
+# 2. 开始前预取
+context = self._memory_manager.prefetch_all(user_message)
+
+# 3. 结束后同步
+self._memory_manager.sync_all(user_msg, assistant_response)
+
+# 4. 记忆触发检查（每 N 轮）
+if self._turns_since_memory >= self._memory_nudge_interval:
+    _should_review_memory = True
+    self._turns_since_memory = 0</code></pre>
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s07')"><span>←</span><div><div class="label">上一章</div><div class="title">提示词系统 — s07</div></div></a>
 <a onclick="switchSection('s09')" style="text-align:right"><div><div class="label">下一章</div><div class="title">插件机制 — s09</div></div><span>→</span></a>
@@ -818,8 +975,44 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s09</span><h1>插件机制</h1><span class="tag tag-system">系统加固</span></div>
 <p class="meta">扩展 Hermes 功能的官方方式<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">plugins/</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Hermes 没有把所有功能硬编码——记忆、图像生成、仪表盘都通过插件扩展。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s09','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s09-learn">
+<div class="prose">
+
+<h2>插件系统架构</h2>
+<pre><code>plugins/
+├── memory/            # 记忆 Provider 插件（honcho, mem0, supermemory）
+├── context_engine/    # 上下文引擎插件
+├── dashboard/         # 仪表盘插件
+├── image_gen/         # 图像生成插件
+└── disk_cleanup/      # 磁盘清理插件</code></pre>
+
+<h2>Hook 系统</h2>
+<p>通过 5 个内置 Hook 点在 Agent 生命周期中触发插件：</p>
+<pre><code>on_session_start   # 新会话创建时 → 插件初始化会话状态
+on_message         # 每条消息处理 → 插件拦截或增强消息
+before_api_call    # API 调用前 → 插件修改请求
+after_api_call     # API 调用后 → 插件处理响应
+on_error           # 错误发生时 → 插件做错误处理</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>扩展方式</td><td class="hermes">官方插件系统 + Hook 机制</td><td>无插件系统</td></tr>
+<tr><td>生命周期 Hook</td><td class="hermes">5 个 Hook 点，覆盖全生命周期</td><td>无扩展点</td></tr>
+<tr><td>内存 Provider</td><td class="hermes">通过插件集成 Honcho/Mem0 等</td><td>内置不可扩展</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s08')"><span>←</span><div><div class="label">上一章</div><div class="title">记忆系统 — s08</div></div></a>
 <a onclick="switchSection('s10')" style="text-align:right"><div><div class="label">下一章</div><div class="title">权限安全 — s10</div></div><span>→</span></a>
@@ -829,9 +1022,64 @@ elif action == "patch":
 <div id="section-s10" class="content-section">
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s10</span><h1>权限安全</h1><span class="tag tag-system">系统加固</span></div>
-<p class="meta">注入检测、密钥脱敏、命令审批、PII 脱敏<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">agent/prompt_builder.py + agent/redact.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<p class="meta">注入检测、密钥脱敏、命令审批、PII 脱敏<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">agent/redact.py + tools/approval.py</span></p>
+<blockquote>因为 Hermes 运行在多个平台、连接多个 Provider，它的安全模型必须比 Claude Code 更厚。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s10','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s10-learn">
+<div class="prose">
+
+<h2>Hermes 的安全分层</h2>
+
+<h3>1. 提示注入检测</h3>
+<p>在 <code>agent/prompt_builder.py</code> 中，上下文文件加载时扫描 14 种威胁模式 + 隐形 Unicode 字符（零宽空格等）。</p>
+
+<h3>2. 密钥脱敏</h3>
+<p>在 <code>agent/redact.py</code> 中，所有工具输出（terminal stdout、read_file 内容、web 响应等）
+自动扫描并替换 API Key / Token / 私钥，防止模型读取到凭证：</p>
+<pre><code># 自动脱敏，可在 config 中关闭
+hermes config set security.redact_secrets false
+# 注意：这个开关在会话启动时锁定，防止 Agent 自己关闭</code></pre>
+
+<h3>3. 命令审批</h3>
+<p>三级审批模式，可每个平台独立配置：</p>
+<pre><code># manual —— 对风险命令手动确认（默认）
+# smart  —— 辅助 LLM 自动审批低风险命令
+# off    —— 跳过所有审批（--yolo 模式）
+
+hermes config set approvals.mode smart</code></pre>
+
+<h3>4. PII 脱敏（Gateway）</h3>
+<p>Gateway 消息中可选脱敏用户 ID 和电话号码：</p>
+<pre><code>hermes config set privacy.redact_pii true  # 启用 PII 脱敏</code></pre>
+
+<h3>5. Cron 提示安全扫描</h3>
+<p>Cron 任务创建时扫描提示文本，防止注入：</p>
+<pre><code>_CRON_THREAT_PATTERNS = [
+    (r'rm\s+-rf\s+/', "destructive_root_rm"),
+    (r'/etc/sudoers|visudo', "sudoers_mod"),
+    (r'authorized_keys', "ssh_backdoor"),
+    # ... 共 8 种高严重性模式
+]</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>安全层</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>提示注入</td><td class="hermes">14 种威胁模式 + 隐形 Unicode 检测</td><td>基本检测</td></tr>
+<tr><td>密钥脱敏</td><td class="hermes">工具输出中自动脱敏 API Key/Token</td><td>不脱敏</td></tr>
+<tr><td>命令审批</td><td class="hermes">三级（manual/smart/off），按平台独立</td><td>基础审批</td></tr>
+<tr><td>Cron 安全</td><td class="hermes">创建时扫描注入 + 高严重性模式</td><td>不支持 Cron</td></tr>
+<tr><td>隐私脱敏</td><td class="hermes">Gateway 消息中可选 PII 脱敏</td><td>纯 CLI，不适用</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s09')"><span>←</span><div><div class="label">上一章</div><div class="title">插件机制 — s09</div></div></a>
 <a onclick="switchSection('s11')" style="text-align:right"><div><div class="label">下一章</div><div class="title">Gateway 架构 — s11</div></div><span>→</span></a>
@@ -842,8 +1090,101 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s11</span><h1>Gateway 架构</h1><span class="tag tag-platform">多平台网关</span></div>
 <p class="meta">Hermes 和 Claude Code 最大的架构差异点<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">gateway/run.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Claude Code 是纯 CLI 工具。Hermes 是一个多平台的 Agent 服务——这是最根本的架构差异。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s11','learn')">学习</button>
+<button class="tab-btn" onclick="switchTab('s11','source')">源码</button>
+</div>
+
+<div class="tab-content active" id="tab-s11-learn">
+<div class="prose">
+
+<h2>Gateway 是什么</h2>
+<p>Gateway 是 Hermes 的<strong>多平台消息路由层</strong>——它让同一个 AIAgent 能同时服务 Telegram、Discord、飞书、微信等 15+ 平台。</p>
+
+<h2>核心架构</h2>
+<pre><code>class GatewayRunner:
+    def __init__(self):
+        self.platforms = {}       # platform_name → PlatformAdapter
+        self.agent_cache = {}     # session_id → AIAgent (LRU 128)
+        self._agent_cache_lock = threading.Lock()
+
+    async def start(self):
+        # 加载所有配置的平台适配器
+        for name, config in self.platform_configs.items():
+            adapter = self._create_adapter(name, config)
+            await adapter.start()
+            self.platforms[name] = adapter
+
+    def get_or_create_agent(self, session_id, ...) -> AIAgent:
+        if session_id not in self.agent_cache:
+            agent = AIAgent(platform="gateway", session_id=session_id, ...)
+            self.agent_cache[session_id] = agent
+        return self.agent_cache[session_id]
+
+    async def _route_message(self, platform, chat_id, message):
+        # 1. 获取或创建会话的 AIAgent
+        agent = self.get_or_create_agent(session_id)
+        # 2. 调用 Agent
+        response = agent.chat(message)
+        # 3. 通过平台适配器发送回执
+        await platform.send_message(chat_id, response)</code></pre>
+
+<h2>关键设计：AIAgent 缓存</h2>
+<p>Gateway 环境下，每个会话缓存一个 AIAgent 实例（LRU 128，闲置超过 1 小时自动回收）。这意味着 gateway 中的 Agent 必须<strong>无状态地处理每条消息</strong>，状态通过外部存储恢复。</p>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>运行模式</td><td class="hermes">CLI + Gateway 服务（常驻后台）</td><td>纯 CLI 会话</td></tr>
+<tr><td>平台数</td><td class="hermes">15+ 平台适配器</td><td>1（CLI）</td></tr>
+<tr><td>消息路由</td><td class="hermes">统一 GatewayRunner → 平台适配器</td><td>直接 CLI 输入</td></tr>
+<tr><td>会话管理</td><td class="hermes">LRU 缓存 AIAgent，跨消息保持状态</td><td>进程内会话</td></tr>
+<tr><td>并发</td><td class="hermes">异步事件循环 + 多平台同时收发</td><td>串行输入输出</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
+<div class="tab-content" id="tab-s11-source">
+<div class="prose">
+<h2>GatewayRunner 初始化</h2>
+<pre><code># gateway/run.py (简化)
+class GatewayRunner:
+    _AGENT_CACHE_MAX_SIZE = 128
+    _AGENT_CACHE_IDLE_TTL_SECS = 3600.0
+
+    async def start(self):
+        # 确保 SSL 证书（NixOS 等系统需要）
+        _ensure_ssl_certs()
+
+        # 遍历平台配置
+        for name, config in self.platform_configs.items():
+            module = importlib.import_module(f"gateway.platforms.{name}")
+            adapter = module.PlatformAdapter(config, self)
+            await adapter.start()
+            self.platforms[name] = adapter
+            logger.info(f"Started platform: {name}")</code></pre>
+
+<h2>消息处理流程</h2>
+<pre><code>平台收到消息
+  → adapter.on_message()
+    → GatewayRunner._route_message(platform, chat_id, text)
+      → get_or_create_agent(session_id)
+      → agent.chat(text)
+      → adapter.send_message(chat_id, response)</code></pre>
+
+<h2>平台管理命令</h2>
+<pre><code>hermes gateway run          # 启动 Gateway
+hermes gateway status       # 查看状态
+hermes gateway install      # 安装为系统服务
+hermes gateway setup        # 配置平台
+/platforms                  # Gateway 中查看平台状态</code></pre>
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s10')"><span>←</span><div><div class="label">上一章</div><div class="title">权限安全 — s10</div></div></a>
 <a onclick="switchSection('s12')" style="text-align:right"><div><div class="label">下一章</div><div class="title">平台适配器 — s12</div></div><span>→</span></a>
@@ -854,8 +1195,71 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s12</span><h1>平台适配器</h1><span class="tag tag-platform">多平台网关</span></div>
 <p class="meta">飞书、Discord、Telegram、微信... 统一的消息处理模式<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">gateway/platforms/</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>每个平台适配器只做三件事：连接、收消息、发消息。Agent 逻辑全在 AIAgent 里。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s12','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s12-learn">
+<div class="prose">
+
+<h2>平台适配器列表</h2>
+<pre><code>gateway/platforms/
+├── feishu.py           # 飞书消息收发、富文本解析、评论回复
+├── feishu_comment.py   # 飞书文档评论回复
+├── discord.py          # Discord Bot + Webhook
+├── telegram.py         # Telegram Bot API
+├── signal.py           # Signal 消息
+├── email.py            # IMAP/SMTP
+├── matrix.py           # Matrix 协议
+├── mattermost.py       # Mattermost
+├── slack.py            # Slack
+├── whatsapp.py         # WhatsApp
+├── qqbot/              # QQ Bot
+├── bluebubbles.py      # iMessage
+├── dingtalk.py         # 钉钉
+├── wecom.py            # 企业微信
+├── weixin.py           # 微信
+├── homeassistant.py    # Home Assistant（智能家居）
+├── api_server.py       # REST API 服务
+└── webhook.py          # Webhook 接入</code></pre>
+
+<h2>平台适配器基类</h2>
+<pre><code>class PlatformAdapter:
+    def __init__(self, config, gateway_runner):
+        self.config = config
+        self.gateway = gateway_runner
+
+    async def start(self):
+        \"\"\"初始化平台连接（WebSocket / HTTP Polling / Webhook）\"\"\"
+        raise NotImplementedError
+
+    async def stop(self):
+        \"\"\"优雅关闭连接\"\"\"
+
+    async def send_message(self, chat_id, text, media=None):
+        \"\"\"发送消息到平台\"\"\"
+        raise NotImplementedError
+
+    async def on_message(self, chat_id, user_id, text, media=None):
+        \"\"\"处理收到的消息，路由到 GatewayRunner\"\"\"
+        await self.gateway._route_message(self, chat_id, text)</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>平台数量</td><td class="hermes">15+ 平台适配器</td><td>仅 CLI</td></tr>
+<tr><td>消息格式</td><td class="hermes">每个平台适配器处理平台特有格式（Feishu 富文本、Markdown、Telegram HTML）</td><td>纯文本</td></tr>
+<tr><td>媒体支持</td><td class="hermes">图片/音频/文件上传到平台 CDN</td><td>本地终端</td></tr>
+<tr><td>平台命令</td><td class="hermes">每个平台有专属命令（Telegram /menu, Discord /slash）</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s11')"><span>←</span><div><div class="label">上一章</div><div class="title">Gateway 架构 — s11</div></div></a>
 <a onclick="switchSection('s13')" style="text-align:right"><div><div class="label">下一章</div><div class="title">定时调度 — s13</div></div><span>→</span></a>
@@ -866,8 +1270,67 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s13</span><h1>定时调度</h1><span class="tag tag-platform">多平台网关</span></div>
 <p class="meta">让 Hermes 按计划自动执行任务<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">cron/</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Claude Code 没有定时任务系统。Hermes 内置了一个完整的 Cron 调度器。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s13','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s13-learn">
+<div class="prose">
+
+<h2>Cron 调度器架构</h2>
+<p>Hermes 内置了完整的定时调度系统，在 <code>cron/</code> 目录下：</p>
+<pre><code>cron/
+├── jobs.py         # 作业 CRUD（create/get/list/update/pause/resume/remove）
+├── scheduler.py    # 调度器主循环
+└── store.py        # 持久化存储</code></pre>
+
+<h2>创建定时任务</h2>
+<pre><code>hermes cron create "30m" --prompt "检查服务器状态并报告"
+
+# 支持的调度格式：
+hermes cron create "every 2h" --prompt "..."        # 自然语言
+hermes cron create "0 9 * * *" --prompt "..."        # Cron 表达式
+hermes cron create "2026-05-01T09:00:00" --prompt "..."  # 单次</code></pre>
+
+<h2>高级功能</h2>
+<pre><code># 链式执行（job B 使用 job A 的上次输出作为上下文）
+hermes cron create "every 1h" --prompt "收集数据" --name collector
+hermes cron create "every 1h" --prompt "分析数据" --context-from collector --name analyzer
+
+# 自定义模型
+hermes cron create "30m" --prompt "..." --model anthropic/claude-sonnet-4
+
+# 限制工具集
+hermes cron create "1h" --prompt "..." --toolsets web,terminal
+
+# 指定工作目录（自动注入 AGENTS.md）
+hermes cron create "1h" --prompt "..." --workdir /path/to/project</code></pre>
+
+<h2>安全：Cron 提示扫描</h2>
+<pre><code>_CRON_THREAT_PATTERNS = [
+    (r'rm\s+-rf\s+/', "destructive_root_rm"),
+    (r'/etc/sudoers|visudo', "sudoers_mod"),
+    (r'authorized_keys', "ssh_backdoor"),
+    (r'cat\s+[^\n]*(\.env|credentials)', "read_secrets"),
+    (r'curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET)', "exfil_curl"),
+]</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>定时任务</td><td class="hermes">内置 Cron 调度器，支持自然语言/Cron/ISO 时间</td><td>无</td></tr>
+<tr><td>链式执行</td><td class="hermes">job A → job B 上下文传递</td><td>无</td></tr>
+<tr><td>安全扫描</td><td class="hermes">创建时自动扫描提示注入</td><td>无</td></tr>
+<tr><td>自定义模型/工具集</td><td class="hermes">每个任务可指定</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s12')"><span>←</span><div><div class="label">上一章</div><div class="title">平台适配器 — s12</div></div></a>
 <a onclick="switchSection('s14')" style="text-align:right"><div><div class="label">下一章</div><div class="title">Webhook — s14</div></div><span>→</span></a>
@@ -878,8 +1341,43 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s14</span><h1>Webhook</h1><span class="tag tag-platform">多平台网关</span></div>
 <p class="meta">事件驱动的 Agent 触发<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">gateway/platforms/webhook.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>通过 HTTP Webhook 触发 Hermes 执行任务，非常适合 CI/CD 集成。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s14','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s14-learn">
+<div class="prose">
+
+<h2>Webhook 订阅</h2>
+<pre><code>hermes webhook subscribe my-hook
+# 创建路由 /webhooks/my-hook
+# POST 到该 URL 时自动触发 Agent 执行
+
+hermes webhook list
+hermes webhook remove my-hook
+hermes webhook test my-hook  # 发送测试 POST</code></pre>
+
+<h2>工作流示例</h2>
+<pre><code># GitHub Webhook → Hermes 自动 Code Review
+1. GitHub PR 触发 webhook
+2. POST → https://your-hermes.com/webhooks/code-review
+3. Hermes 运行 review prompt
+4. 结果发送到 Telegram/Discord</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>外部触发</td><td class="hermes">HTTP Webhook 订阅，CI/CD 集成</td><td>无</td></tr>
+<tr><td>自动响应</td><td class="hermes">收到 POST 自动执行 Agent 并返回结果</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s13')"><span>←</span><div><div class="label">上一章</div><div class="title">定时调度 — s13</div></div></a>
 <a onclick="switchSection('s15')" style="text-align:right"><div><div class="label">下一章</div><div class="title">Credential Pool — s15</div></div><span>→</span></a>
@@ -890,8 +1388,93 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s15</span><h1>Credential Pool</h1><span class="tag tag-platform">高级特性</span></div>
 <p class="meta">多 API Key 自动轮换 + 故障转移<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">agent/credential_pool.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Claude Code 用一个 API Key。Hermes 配了多个？自动轮换和 Fallback。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s15','learn')">学习</button>
+<button class="tab-btn" onclick="switchTab('s15','source')">源码</button>
+</div>
+
+<div class="tab-content active" id="tab-s15-learn">
+<div class="prose">
+
+<h2>Credential Pool 解决的问题</h2>
+<p>当一个 Provider 的 API Key 遇到限流（429）或配额耗尽（402）时，Hermes 自动切换到池中的下一个可用凭证。</p>
+
+<h2>轮换策略</h2>
+<pre><code>SUPPORTED_POOL_STRATEGIES = {
+    "fill_first",    # 先用第一个，用满再用下一个
+    "round_robin",   # 轮流使用
+    "random",        # 随机选择
+    "least_used",    # 最少使用优先
+}</code></pre>
+
+<h2>自动 Fallback 流程</h2>
+<pre><code>class CredentialPool:
+    def acquire(self) -> Credential | None:
+        for cred in self._get_by_strategy():
+            if cred.status == STATUS_OK:
+                cred.usage_count += 1
+                return cred
+            elif self._cooldown_expired(cred):
+                cred.status = STATUS_OK  # 冷却结束，恢复
+                return cred
+        return None  # 全部耗尽
+
+# 冷却时间
+EXHAUSTED_TTL_429_SECONDS = 60 * 60        # 1 小时（限流）
+EXHAUSTED_TTL_DEFAULT_SECONDS = 60 * 60     # 1 小时（默认）
+# Provider 也可返回 reset_at 时间覆盖默认冷却</code></pre>
+
+<h2>使用方式</h2>
+<pre><code>hermes auth add              # 交互式添加凭证
+hermes auth list [provider]  # 列出凭证
+hermes auth remove P INDEX   # 删除凭证
+hermes auth reset PROVIDER   # 清除耗尽状态</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>多 Key</td><td class="hermes">同一 Provider 可配多个 API Key</td><td>单 Key</td></tr>
+<tr><td>自动轮换</td><td class="hermes">4 种策略 + 限流/配额耗尽自动切换</td><td>无</td></tr>
+<tr><td>冷却管理</td><td class="hermes">可配置冷却时间 + Provider 自定义 reset_at</td><td>无</td></tr>
+<tr><td>OAuth 支持</td><td class="hermes">支持 OAuth token 刷新</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
+<div class="tab-content" id="tab-s15-source">
+<div class="prose">
+<h2>CredentialPool 核心实现</h2>
+<pre><code>class CredentialPool:
+    def acquire(self):
+        \"\"\"获取一个可用凭证\"\"\"
+        for cred in self._get_credential_by_strategy():
+            if cred.status == STATUS_OK:
+                cred.usage_count += 1
+                return cred
+            elif self._cooldown_expired(cred):
+                cred.status = STATUS_OK
+                cred.usage_count += 1
+                return cred
+        return None
+
+    def mark_exhausted(self, cred, reason=None):
+        \"\"\"标记凭证为耗尽状态\"\"\"
+        cred.status = STATUS_EXHAUSTED
+        cred.exhausted_at = time.time()
+        if reason in (429, "rate_limit"):
+            cred.cooldown = EXHAUSTED_TTL_429_SECONDS
+        else:
+            cred.cooldown = EXHAUSTED_TTL_DEFAULT_SECONDS
+
+    def _cooldown_expired(self, cred):
+        return (time.time() - cred.exhausted_at) >= cred.cooldown</code></pre>
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s14')"><span>←</span><div><div class="label">上一章</div><div class="title">Webhook — s14</div></div></a>
 <a onclick="switchSection('s16')" style="text-align:right"><div><div class="label">下一章</div><div class="title">Profiles 隔离 — s16</div></div><span>→</span></a>
@@ -902,8 +1485,50 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s16</span><h1>Profiles 隔离</h1><span class="tag tag-platform">高级特性</span></div>
 <p class="meta">多个独立 Hermes 实例，互不干扰<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">hermes profile</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>一套 Hermes 安装，多个独立的配置、会话、技能和记忆。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s16','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s16-learn">
+<div class="prose">
+
+<h2>Profile 是什么</h2>
+<p>Profile 是 Hermes 的<strong>多实例隔离</strong>机制——每个 Profile 拥有完全独立的：</p>
+<ul>
+<li><strong>配置</strong> — 不同的模型、Provider、工具集</li>
+<li><strong>会话</strong> — 独立的对话历史</li>
+<li><strong>技能</strong> — 不同的技能库</li>
+<li><strong>记忆</strong> — 独立的内存存储</li>
+<li><strong>日志</strong> — 独立的日志文件</li>
+</ul>
+
+<h2>管理命令</h2>
+<pre><code>hermes profile create work --clone        # 从当前 Profile 克隆
+hermes profile create coding --clone-all  # 克隆所有设置
+hermes profile list                       # 列出所有 Profile
+hermes profile use coding                 # 设为默认
+hermes profile show work                  # 查看详情
+hermes profile export work                # 导出为 tar.gz
+hermes profile import archive.tar.gz      # 导入 Profile
+hermes profile delete coding              # 删除
+hermes profile alias coding               # 创建快捷命令</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>多实例</td><td class="hermes">多个 Profile，完全隔离</td><td>无</td></tr>
+<tr><td>配置隔离</td><td class="hermes">每个 Profile 有独立 config.yaml</td><td>单配置</td></tr>
+<tr><td>技能隔离</td><td class="hermes">不同 Profile 可加载不同技能集</td><td>单技能目录</td></tr>
+<tr><td>导入导出</td><td class="hermes">Profile 可导出为 tar.gz 分享</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s15')"><span>←</span><div><div class="label">上一章</div><div class="title">Credential Pool — s15</div></div></a>
 <a onclick="switchSection('s17')" style="text-align:right"><div><div class="label">下一章</div><div class="title">Checkpoints — s17</div></div><span>→</span></a>
@@ -914,8 +1539,44 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s17</span><h1>Checkpoints</h1><span class="tag tag-platform">高级特性</span></div>
 <p class="meta">文件系统快照，支持回滚<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">tools/checkpoint_manager.py</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Agent 每次修改文件前自动创建快照——做错了？/rollback 回到上一状态。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s17','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s17-learn">
+<div class="prose">
+
+<h2>Checkpoint 系统</h2>
+<p>Hermes 的文件系统 Checkpoint 机制在 Agent 每次修改文件前创建项目快照，
+如果 Agent 做出了错误的更改，可以一键回滚：</p>
+
+<pre><code>hermes config set checkpoints.enabled true   # 启用
+hermes config set checkpoints.max_snapshots 50  # 最多 50 个快照
+
+# 会话中
+/rollback     # 回滚到上一个检查点
+/rollback 3   # 回滚到 3 步前</code></pre>
+
+<h2>实现原理</h2>
+<p>Checkpoint 在 <code>tools/checkpoint_manager.py</code> 中实现，
+在每个写文件操作（write_file / patch / terminal 中的文件修改）前，
+自动对受影响的文件或目录做快照备份。</p>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>文件快照</td><td class="hermes">每次写操作前自动创建，支持回滚</td><td>无</td></tr>
+<tr><td>回滚命令</td><td class="hermes">/rollback [N] 回滚 N 步</td><td>无</td></tr>
+<tr><td>快照上限</td><td class="hermes">可配置最大 50 个</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s16')"><span>←</span><div><div class="label">上一章</div><div class="title">Profiles 隔离 — s16</div></div></a>
 <a onclick="switchSection('s18')" style="text-align:right"><div><div class="label">下一章</div><div class="title">MCP 集成 — s18</div></div><span>→</span></a>
@@ -926,8 +1587,47 @@ elif action == "patch":
 <div class="chapter-header">
 <div class="badge-row"><span class="badge">s18</span><h1>MCP 集成</h1><span class="tag tag-platform">高级特性</span></div>
 <p class="meta">既是 MCP 客户端也是 MCP 服务端<span style="margin:0 8px;color:var(--color-border)">|</span><span class="mono">hermes mcp</span></p>
-<blockquote>构建中，敬请期待...</blockquote>
+<blockquote>Hermes 可以消费 MCP 服务器的工具，也可以作为 MCP 服务器被其他工具消费。</blockquote>
 </div>
+
+<div class="tabs">
+<button class="tab-btn active" onclick="switchTab('s18','learn')">学习</button>
+</div>
+
+<div class="tab-content active" id="tab-s18-learn">
+<div class="prose">
+
+<h2>MCP 客户端</h2>
+<p>Hermes 作为 MCP 客户端，可以连接任意 MCP 服务器，将其工具暴露给 Agent：</p>
+<pre><code>hermes mcp add filesystem --command "npx @modelcontextprotocol/server-filesystem /path"
+hermes mcp add my-api --url "https://api.example.com/mcp"
+
+hermes mcp list               # 列出已配置的 MCP 服务器
+hermes mcp test filesystem    # 测试连接
+hermes mcp remove filesystem  # 删除
+hermes mcp configure NAME     # 切换工具选择
+
+# MCP 服务器的工具自动注册到 Agent 的工具集中
+# 不需要手动配置，/reload-mcp 即可刷新</code></pre>
+
+<h2>MCP 服务端</h2>
+<p>Hermes 也可以作为 MCP 服务器运行，让其他 MCP 客户端（如 Claude Desktop）使用 Hermes 的所有工具：</p>
+<pre><code>hermes mcp serve              # 启动 MCP 服务器
+# 然后在 Claude Desktop 等工具中添加 MCP Server：
+# 命令: hermes mcp serve</code></pre>
+
+<h2>与 Claude Code 的差异</h2>
+<table class="diff-table">
+<thead><tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr></thead>
+<tbody>
+<tr><td>MCP 客户端</td><td class="hermes">消费 MCP 服务器工具，自动注册到 Agent</td><td>无</td></tr>
+<tr><td>MCP 服务端</td><td class="hermes">作为 MCP Server 被 Claude Desktop 等消费</td><td>无</td></tr>
+<tr><td>自动发现</td><td class="hermes">MCP 工具通过 registry 自动注册，/reload-mcp 刷新</td><td>无</td></tr>
+</tbody>
+</table>
+
+</div></div>
+
 <nav class="nav-links">
 <a onclick="switchSection('s17')"><span>←</span><div><div class="label">上一章</div><div class="title">Checkpoints — s17</div></div></a>
 </nav>
