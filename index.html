@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charSet="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Learn Hermes Agent — 源码讲解</title>
+<style>
+  :root {
+    --color-bg: #ffffff;
+    --color-bg-secondary: #f8f9fa;
+    --color-text: #1a1a2e;
+    --color-text-secondary: #6b7280;
+    --color-border: #e5e7eb;
+    --color-accent: #6366f1;
+    --color-accent-light: #eef2ff;
+    --color-hover: #f3f4f6;
+    --color-code-bg: #f8f9fa;
+    --color-blockquote: #e5e7eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-bg: #0f0f23;
+      --color-bg-secondary: #1a1a2e;
+      --color-text: #e4e4e7;
+      --color-text-secondary: #a1a1aa;
+      --color-border: #27272a;
+      --color-accent: #818cf8;
+      --color-accent-light: #1e1b4b;
+      --color-hover: #27272a;
+      --color-code-bg: #1a1a2e;
+      --color-blockquote: #3f3f46;
+    }
+  }
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+    backdrop-filter: blur(8px);
+  }
+  header > div {
+    max-width: 1280px;
+    margin: 0 auto;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+  }
+  header a.logo {
+    font-size: 18px;
+    font-weight: 700;
+    text-decoration: none;
+    color: var(--color-text);
+  }
+  header a.logo span {
+    color: var(--color-accent);
+  }
+  header nav {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  header nav a {
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--color-text-secondary);
+    transition: color 0.2s;
+  }
+  header nav a:hover { color: var(--color-text); }
+  header nav .github-link {
+    color: var(--color-text-secondary);
+  }
+  header nav .github-link:hover { color: var(--color-text); }
+
+  /* Layout */
+  .layout {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    display: flex;
+    gap: 32px;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 288px;
+    flex-shrink: 0;
+  }
+  .sidebar-inner {
+    position: sticky;
+    top: calc(56px + 32px);
+    max-height: calc(100vh - 88px);
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+  .sidebar-section {
+    margin-bottom: 24px;
+  }
+  .sidebar-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 8px;
+  }
+  .sidebar-section-header .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .sidebar-section-header span {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+  }
+  .sidebar ul {
+    list-style: none;
+  }
+  .sidebar ul li a {
+    display: block;
+    padding: 6px 10px;
+    font-size: 13px;
+    text-decoration: none;
+    color: var(--color-text-secondary);
+    border-radius: 6px;
+    transition: all 0.15s;
+  }
+  .sidebar ul li a:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+  .sidebar ul li a.active {
+    background: var(--color-accent-light);
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+  .sidebar ul li a .mono {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+  .sidebar ul li a .title {
+    margin-left: 6px;
+  }
+
+  /* Content */
+  .content {
+    flex: 1;
+    min-width: 0;
+  }
+  .content-inner {
+    max-width: 768px;
+    margin: 0 auto;
+  }
+
+  /* Chapter header */
+  .chapter-header {
+    margin-bottom: 24px;
+  }
+  .chapter-header .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .chapter-header .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+  .chapter-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .chapter-header .meta {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-top: 6px;
+  }
+  .chapter-header .meta span.mono {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .chapter-header blockquote {
+    margin-top: 12px;
+    border-left: 4px solid var(--color-blockquote);
+    padding-left: 16px;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--color-text-secondary);
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 20px;
+  }
+  .tabs button {
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tabs button.active {
+    border-bottom-color: var(--color-text);
+    color: var(--color-text);
+  }
+  .tabs button:hover {
+    color: var(--color-text);
+  }
+
+  /* Content prose */
+  .prose {
+    line-height: 1.75;
+    font-size: 15px;
+    color: var(--color-text);
+  }
+  .prose h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 40px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .prose h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-top: 28px;
+    margin-bottom: 10px;
+  }
+  .prose p {
+    margin-bottom: 16px;
+  }
+  .prose ul, .prose ol {
+    margin-bottom: 16px;
+    padding-left: 24px;
+  }
+  .prose li {
+    margin-bottom: 6px;
+  }
+  .prose strong {
+    font-weight: 600;
+  }
+  .prose code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    padding: 2px 6px;
+    background: var(--color-code-bg);
+    border-radius: 4px;
+  }
+  .prose pre {
+    background: var(--color-code-bg);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    margin-bottom: 20px;
+    border: 1px solid var(--color-border);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .prose pre code {
+    background: none;
+    padding: 0;
+    font-size: 13px;
+  }
+  .prose blockquote {
+    border-left: 4px solid var(--color-accent);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: var(--color-accent-light);
+    border-radius: 0 6px 6px 0;
+  }
+  .prose blockquote p { margin-bottom: 0; }
+  .prose blockquote.hero-callout {
+    border-left-color: var(--color-accent);
+    background: var(--color-accent-light);
+    font-size: 16px;
+  }
+  .prose blockquote.hero-callout em {
+    font-style: italic;
+  }
+  .prose .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-core { background: #dbeafe; color: #1e40af; }
+  .tag-system { background: #d1fae5; color: #065f46; }
+  .tag-runtime { background: #fef3c7; color: #92400e; }
+  .tag-platform { background: #fce7f3; color: #9d174d; }
+  @media (prefers-color-scheme: dark) {
+    .tag-core { background: #1e3a5f; color: #93c5fd; }
+    .tag-system { background: #064e3b; color: #6ee7b7; }
+    .tag-runtime { background: #78350f; color: #fcd34d; }
+    .tag-platform { background: #5b1f3a; color: #f9a8d4; }
+  }
+
+  /* Diff comparison table */
+  .diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  .diff-table th, .diff-table td {
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: top;
+  }
+  .diff-table th {
+    background: var(--color-code-bg);
+    font-weight: 600;
+    width: 22%;
+  }
+  .diff-table td:first-child {
+    font-weight: 600;
+    white-space: nowrap;
+    width: 22%;
+  }
+  .diff-table .hermes { background: var(--color-accent-light); }
+
+  /* Navigation */
+  .nav-links {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid var(--color-border);
+    padding-top: 24px;
+    margin-top: 40px;
+  }
+  .nav-links a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--color-text); }
+  .nav-links a .label {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+  }
+  .nav-links a .title {
+    font-weight: 500;
+  }
+
+  /* Hero box */
+  .hero-box {
+    background: var(--color-accent-light);
+    border: 1px solid var(--color-accent);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .hero-box h3 {
+    margin-top: 0;
+    color: var(--color-accent);
+  }
+  .hero-box p {
+    margin-bottom: 0;
+    font-size: 14px;
+  }
+
+  /* Code block language label */
+  .code-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <a href="#" class="logo">Learn <span>Hermes</span> Agent</a>
+    <nav>
+      <a href="#">参考资料</a>
+      <a href="#" class="active">源码讲解</a>
+      <a href="#">版本对比</a>
+      <div style="display:flex;gap:4px;border:1px solid var(--color-border);border-radius:8px;padding:2px">
+        <button style="background:var(--color-text);color:var(--color-bg);border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">中文</button>
+        <button style="background:none;border:none;border-radius:6px;padding:4px 10px;font-size:11px;color:var(--color-text-secondary);cursor:pointer">EN</button>
+      </div>
+      <a href="https://github.com/NousResearch/hermes-agent" target="_blank" class="github-link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="dot" style="background:#6366f1"></span>
+          <span>核心架构</span>
+        </div>
+        <ul>
+          <li><a href="#" class="active"><span class="mono">s01</span><span class="title">Agent 循环</span></a></li>
+          <li><a href="#"><span class="mono">s02</span><span class="title">Provider 抽象</span></a></li>
+          <li><a href="#"><span class="mono">s03</span><span class="title">工具系统</span></a></li>
+          <li><a href="#"><span class="mono">s04</span><span class="title">子代理</span></a></li>
+          <li><a href="#"><span class="mono">s05</span><span class="title">技能系统</span></a></li>
+          <li><a href="#"><span class="mono">s06</span><span class="title">上下文压缩</span></a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="dot" style="background:#10b981"></span>
+          <span>系统加固</span>
+        </div>
+        <ul>
+          <li><a href="#"><span class="mono">s07</span><span class="title">提示词系统</span></a></li>
+          <li><a href="#"><span class="mono">s08</span><span class="title">记忆系统</span></a></li>
+          <li><a href="#"><span class="mono">s09</span><span class="title">插件机制</span></a></li>
+          <li><a href="#"><span class="mono">s10</span><span class="title">权限安全</span></a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="dot" style="background:#f59e0b"></span>
+          <span>多平台网关</span>
+        </div>
+        <ul>
+          <li><a href="#"><span class="mono">s11</span><span class="title">Gateway 架构</span></a></li>
+          <li><a href="#"><span class="mono">s12</span><span class="title">平台适配器</span></a></li>
+          <li><a href="#"><span class="mono">s13</span><span class="title">定时调度</span></a></li>
+          <li><a href="#"><span class="mono">s14</span><span class="title">Webhook</span></a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="dot" style="background:#ec4899"></span>
+          <span>高级特性</span>
+        </div>
+        <ul>
+          <li><a href="#"><span class="mono">s15</span><span class="title">Credential Pool</span></a></li>
+          <li><a href="#"><span class="mono">s16</span><span class="title">Profiles 隔离</span></a></li>
+          <li><a href="#"><span class="mono">s17</span><span class="title">Checkpoints</span></a></li>
+          <li><a href="#"><span class="mono">s18</span><span class="title">MCP 集成</span></a></li>
+        </ul>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="content">
+    <div class="content-inner">
+
+      <!-- Chapter Header -->
+      <div class="chapter-header">
+        <div class="badge-row">
+          <span class="badge">s00</span>
+          <h1>Hermes Agent 源码全景</h1>
+          <span class="tag tag-core">核心架构</span>
+        </div>
+        <p class="meta">
+          先看全景，再逐个深入
+          <span style="margin:0 8px;color:var(--color-border)">|</span>
+          <span class="mono">~13,000 LOC</span><span style="margin:0 8px;color:var(--color-border)">|</span>
+          <span>20+ 个核心模块</span>
+        </p>
+        <blockquote>Hermes 不是 Claude Code 的克隆——它是从零设计的一个开放、多 Provider、多平台的 Agent 框架。</blockquote>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="active">学习</button>
+        <button>源码</button>
+        <button>深入探索</button>
+      </div>
+
+      <!-- Content -->
+      <div class="prose">
+
+        <blockquote class="hero-callout">
+          <p><em>学 Hermes 源码最好的方式，不是读每行代码，而是理解它在"什么问题上做了和 Claude Code 不同的设计选择"。</em></p>
+        </blockquote>
+
+        <h2>Hermes 是什么，为什么有它</h2>
+        <p>
+          <strong>Hermes Agent</strong> 是 Nous Research 开发的开源 AI Agent 框架（MIT 协议）。
+          它和 Claude Code、OpenAI Codex、OpenCode 属于同一类——<strong>自主编码 + 任务执行 Agent</strong>，
+          通过工具调用与系统交互。
+        </p>
+        <p>但 Hermes 和 Claude Code 有几个根本性不同：</p>
+        <ul>
+          <li><strong>全开源</strong> — 代码完全可见，Claude Code 是闭源的</li>
+          <li><strong>Provider 无关</strong> — 支持 20+ 个 LLM Provider，Claude Code 只绑定 Anthropic</li>
+          <li><strong>多平台</strong> — 可以在 Telegram、Discord、飞书、微信等 15+ 平台运行</li>
+          <li><strong>技能自进化</strong> — Agent 可以从经验中学习，把工作流保存为可复用的 Skill</li>
+        </ul>
+
+        <div class="hero-box">
+          <h3>💡 本文的核心视角</h3>
+          <p>对照 Claude Code 的设计哲学来理解 Hermes。两者的"为什么"比"怎么做"更有学习价值。</p>
+        </div>
+
+        <h2>最小心智模型</h2>
+        <p>把 Hermes 先理解成这几层：</p>
+        <pre><code>第 1 层：Provider 适配层（Chat Completions / Anthropic / Codex / Bedrock / Copilot ACP）
+  → 统一成 OpenAI 格式的消息 + 工具
+
+第 2 层：Agent 循环（run_agent.py / AIAgent）
+  → 循环：调用 LLM → 解析工具调用 → 分发 → 追加结果 → 继续
+
+第 3 层：工具系统（tools/ + model_tools.py）
+  → 每个工具自我注册，按工具集分组，条件启用
+
+第 4 层：持久层（记忆 / 技能 / 配置）
+  → 跨会话记忆、按需技能加载、配置文件
+
+第 5 层：多平台网关（gateway/）
+  → 统一消息路由，平台适配器模式
+
+第 6 层：调度与扩展（Cron / Webhook / MCP / 子代理）
+  → 定时任务、事件触发、IDE 集成、并行工作流</code></pre>
+
+        <h2>与 Claude Code 的核心差异</h2>
+
+        <p>最核心的一句话：<strong>Claude Code 是一个"Claude 专属"的工具，Hermes 是一个"任何模型都可以用的 Agent 框架"。</strong></p>
+        <p>这个设计前提的差异，往下渗透到了每一层架构。</p>
+
+        <h3>1. Provider 抽象 —— 核心差异</h3>
+
+        <p>Claude Code 只面向 Anthropic API（Messages API），Hermes 需要支持任意 OpenAI 兼容 Provider。</p>
+
+        <table class="diff-table">
+          <thead>
+            <tr><th>维度</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>适配模式</td>
+              <td class="hermes">Transport 模式。每个 api_mode 一个 Transport 类，
+                统一输出 NormalizedResponse（tool_calls + content + usage）</td>
+              <td>直接使用 Anthropic Python SDK</td>
+            </tr>
+            <tr>
+              <td>覆盖范围</td>
+              <td class="hermes">chat_completions（OpenAI 兼容）/ anthropic_messages / codex_responses /
+                bedrock_converse / copilot_acp — 共 5 种传输模式</td>
+              <td>仅 Anthropic Messages API</td>
+            </tr>
+            <tr>
+              <td>Provider 特定逻辑</td>
+              <td class="hermes">每个 Provider 有自己的 base_url / headers / 超时 / 参数格式，
+                在 build_kwargs() 中通过条件分支处理</td>
+              <td>所有请求走同一套 SDK，无 Provider 差异</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>来看关键代码。在 <code>run_agent.py</code> 中，AIAgent 的 <code>__init__</code> 根据 api_mode 选择不同的初始化路径：</p>
+
+        <pre><code># run_agent.py — AIAgent.__init__ (简化)
+if self.api_mode == "anthropic_messages":
+    self.client = Anthropic(api_key=api_key, base_url=base_url)
+    self._transport = AnthropicTransport()
+elif self.api_mode == "bedrock_converse":
+    self._bedrock_region = re.search(r"bedrock-runtime\.([a-z0-9-]+)", base_url).group(1)
+    self.client = None  # 直接使用 boto3
+elif self.api_mode == "codex_responses":
+    self.client = OpenAI(api_key=api_key, base_url="https://api.openai.com")
+    self._transport = CodexResponsesTransport()
+else:
+    # chat_completions — 默认路径，覆盖 ~16 个 Provider
+    self.client = OpenAI(api_key=api_key, base_url=base_url)
+    self._transport = ChatCompletionsTransport()</code></pre>
+
+        <h3>2. 核心 Agent 循环</h3>
+
+        <p>在 <code>run_agent.py</code> 的 <code>run_conversation()</code> 方法中（~3600 行），
+          Hermes 的 Agent 循环和 Claude Code 的结构类似，但多了很多层：</p>
+
+        <pre><code># run_agent.py — run_conversation() 核心循环逻辑
+while (api_call_count &lt; self.max_iterations
+       and self.iteration_budget.remaining > 0) \
+        or self._budget_grace_call:
+
+    if self._interrupt_requested:
+        break
+
+    # 1. 调用 LLM（通过 transport 层）
+    response = self._interruptible_api_call(
+        model=self.model,
+        messages=messages,
+        tools=tool_schemas,
+    )
+
+    # 2. 处理工具调用
+    if response.tool_calls:
+        for tool_call in response.tool_calls:
+            result = handle_function_call(
+                tool_call.name, tool_call.args, task_id
+            )
+            messages.append(tool_result_message(result))
+        api_call_count += 1
+    else:
+        # 3. 返回最终文本
+        return response.content</code></pre>
+
+        <p><strong>Hermes 比 Claude Code 多了什么：</strong></p>
+        <ul>
+          <li><strong>迭代预算</strong> — <code>IterationBudget</code>，子代理消耗共享预算</li>
+          <li><strong>断线检测</strong> — <code>_cleanup_dead_connections()</code>，在 API 调用前清理僵尸 TCP 连接</li>
+          <li><strong>自动 Fallback</strong> — 当主 Provider 返回 429/402 时，自动切换到备用 Credential</li>
+          <li><strong>重试分类</strong> — 针对 invalid tool calls、JSON parse 失败、空内容等分别计数和重试</li>
+          <li><strong>上下文压缩</strong> — 当接近 token 限制时，自动压缩中间轮次</li>
+          <li><strong>记忆提示</strong> — 每隔 N 轮自动提醒 Agent 查阅记忆</li>
+          <li><strong>系统提示缓存</strong> — 只在第一轮构建，后续复用（支持 Anthropic Prompt Caching）</li>
+        </ul>
+
+        <h3>3. 工具系统 —— 自注册 + 按工具集分组</h3>
+
+        <p>这是 Hermes 和 Claude Code 差异很大的区域。Claude Code 的工具是硬编码在 Agent 逻辑里的，
+          Hermes 的工具是<strong>自我注册</strong>的。</p>
+
+        <pre><code># tools/registry.py — 每个工具在 import 时自我注册
+registry.register(
+    name="web_search",
+    toolset="web",
+    schema={
+        "name": "web_search",
+        "description": "Search the web",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+    handler=lambda args, **kw: web_search(query=args["query"]),
+    check_fn=lambda: bool(os.getenv("SEARCH_API_KEY")),
+    requires_env=["SEARCH_API_KEY"],
+)</code></pre>
+
+        <table class="diff-table">
+          <thead>
+            <tr><th>维度</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>注册方式</td>
+              <td class="hermes">自动发现。tools/*.py 中只要有 registry.register() 调用，
+                在 import 时自动注册。不需要手动维护列表</td>
+              <td>工具列表硬编码在 Agent 的 tool 定义中</td>
+            </tr>
+            <tr>
+              <td>工具集</td>
+              <td class="hermes">21 个工具集（web/browser/terminal/vision/delegation 等），
+                可针对每个平台启用/禁用</td>
+              <td>没有工具集概念，所有工具有了就有</td>
+            </tr>
+            <tr>
+              <td>条件启用</td>
+              <td class="hermes">check_fn() — 只有环境变量满足时才暴露给模型</td>
+              <td>工具按需出现，无显式检查</td>
+            </tr>
+            <tr>
+              <td>按平台隔离</td>
+              <td class="hermes">不同的消息平台可以有不同工具集（如 Home Assistant 只在专用频道启用）</td>
+              <td>所有平台共享同一套工具</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>工具集的定义在 <code>toolsets.py</code> 里：</p>
+
+        <pre><code># toolsets.py — 核心工具集定义（简化）
+_HERMES_CORE_TOOLS = [
+    "web_search", "web_extract",
+    "terminal", "process",
+    "read_file", "write_file", "patch", "search_files",
+    "vision_analyze", "image_generate",
+    "skills_list", "skill_view", "skill_manage",
+    "browser_navigate", "browser_snapshot", "browser_click",
+    "todo", "memory", "session_search",
+    "clarify", "execute_code", "delegate_task",
+    "cronjob", "send_message",
+]
+
+TOOLSETS = {
+    "web":     {"description": "Web research tools",       "tools": ["web_search", "web_extract"]},
+    "terminal":{"description": "Terminal execution tools",  "tools": ["terminal", "process"]},
+    "delegation":{"description": "Subagent delegation",    "tools": ["delegate_task"]},
+    # ... 21 个工具集
+}</code></pre>
+
+        <h3>4. 子代理系统 —— 并行 + 隔离</h3>
+
+        <p>和 Claude Code 一样，Hermes 也支持子代理（delegate_task）。但 Hermes 的版本更灵活：</p>
+
+        <pre><code># tools/delegate_tool.py
+# 子代理的受限工具集
+DELEGATE_BLOCKED_TOOLS = frozenset([
+    "delegate_task",  # 禁止递归委托
+    "clarify",        # 禁止询问用户
+    "memory",         # 禁止写入共享记忆
+    "send_message",   # 禁止跨平台副作用
+    "execute_code",   # 子代理应该一步步推理
+])
+
+# 每个子代理在独立线程中运行：
+with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+    futures = [executor.submit(run_child, task) for task in tasks]
+    for future in as_completed(futures):
+        results.append(future.result())</code></pre>
+
+        <table class="diff-table">
+          <thead>
+            <tr><th>特性</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>并行度</td>
+              <td class="hermes">支持批量并行子代理（默认最多 3 个），各自独立 terminal</td>
+              <td>串行子代理</td>
+            </tr>
+            <tr>
+              <td>隔离级别</td>
+              <td class="hermes">每个子代理有独立的 task_id、terminal 会话、文件状态缓存</td>
+              <td>共享终端状态</td>
+            </tr>
+            <tr>
+              <td>角色控制</td>
+              <td class="hermes">支持 leaf（不能继续委托）和 orchestrator（可继续委托）</td>
+              <td>无角色区分</td>
+            </tr>
+            <tr>
+              <td>工具集限制</td>
+              <td class="hermes">每个子任务可以指定允许的工具集</td>
+              <td>子代理继承父工具集</td>
+            </tr>
+            <tr>
+              <td>ACP 子进程</td>
+              <td class="hermes">可以委托给外部 ACP 进程（如 Claude Code CLI、Codex CLI）</td>
+              <td>仅内部子进程</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>5. 技能系统 —— 自进化的知识库</h3>
+
+        <p>这是 Hermes 最有特色的系统。Claude Code 的 CLAUDE.md / .cursorrules 是静态配置，
+          而 Hermes 的 Skills 是<strong>动态的、可积累的、Agent 自己维护的</strong>知识库。</p>
+
+        <pre><code># agent/skill_utils.py — 技能文件系统结构
+# 每个技能是一个目录，里面至少有一个 SKILL.md
+skills/
+  code-review/
+    SKILL.md          # YAML frontmatter + Markdown 正文
+  git-workflow/
+    SKILL.md
+    templates/        # 可选模板文件
+    references/       # 可选参考文档
+    scripts/          # 可选脚本
+
+# skill_view() 读取时解析 frontmatter，提取 name/description/tags
+# 然后作为工具结果注入当前上下文</code></pre>
+
+        <p>关键区别：</p>
+        <ul>
+          <li><strong>Claude Code</strong> 的 CLAUDE.md 是 <strong>项目级静态配置</strong>——需要手动编辑，永远不会自动更新</li>
+          <li><strong>Hermes</strong> 的 Skill 是 <strong>Agent 自维护的</strong>——Agent 可以用 <code>skill_manage()</code> 工具创建、更新、删除技能</li>
+          <li><strong>按需加载</strong> — 技能目录在 system prompt 里只有名字+描述，正文在需要时才通过 <code>skill_view()</code> 加载</li>
+          <li><strong>共享生态</strong> — 支持技能市场（<code>hermes skills browse</code>）、GitHub 源（<code>hermes skills tap add REPO</code>）</li>
+        </ul>
+
+        <h3>6. 记忆系统 —— 多 Provider 可插拔</h3>
+
+        <pre><code># agent/memory_manager.py — 核心设计
+class MemoryManager:
+    """管理内置记忆 Provider + 最多一个外部插件 Provider"""
+
+    def __init__(self):
+        self.providers = []
+        self._has_external = False  # 最多允许一个外部 Provider
+
+    def add_provider(self, provider: MemoryProvider):
+        if not provider.is_builtin and self._has_external:
+            logger.warning("Only one external memory provider allowed. Rejecting %s", provider.name)
+            return
+        self.providers.append(provider)
+        if not provider.is_builtin:
+            self._has_external = True
+
+    def prefetch_all(self, user_message: str) -> str:
+        """预取所有记忆，构建 <memory-context> 块"""
+        parts = []
+        for p in self.providers:
+            parts.append(p.prefetch(user_message))
+        return "\n".join(parts)
+
+    def sync_all(self, user_msg: str, assistant_response: str):
+        """同步记忆到所有 Provider"""
+        for p in self.providers:
+            p.sync(user_msg, assistant_response)</code></pre>
+
+        <p>Claude Code 的记忆系统是 Anthropic 内置的（项目知识 + 用户偏好记忆），不可扩展。</p>
+        <p>Hermes 的记忆系统可插拔：内置 Provider、Honcho、Mem0、Supermemory 等。Agent 每 N 轮自动回顾记忆。</p>
+
+        <h3>7. 多平台网关 —— 最大的架构差异</h3>
+
+        <p>这是 Hermes 和 Claude Code 最大的架构差异。Claude Code 是纯 CLI 工具。
+          Hermes 是一个<strong>多平台的 Agent 服务</strong>：</p>
+
+        <pre><code># gateway/run.py — Gateway 架构（简化）
+class GatewayRunner:
+    def __init__(self):
+        self.platforms = {}   # platform_name -> PlatformAdapter
+        self.agent_cache = LRUCache(max_size=128)  # 缓存 AIAgent 实例
+
+    async def start(self):
+        # 加载所有配置的平台适配器
+        for name, config in self.platform_configs.items():
+            adapter = self._create_adapter(name, config)
+            await adapter.start()
+            self.platforms[name] = adapter
+
+    def get_or_create_agent(self, session_id: str) -> AIAgent:
+        # LRU 缓存 AIAgent 实例，每会话一个
+        if session_id not in self.agent_cache:
+            self.agent_cache[session_id] = AIAgent(platform="gateway", ...)
+        return self.agent_cache[session_id]</code></pre>
+
+        <p>每个平台适配器（<code>gateway/platforms/</code>）实现相同的基类：</p>
+        <ul>
+          <li><code>FeishuAdapter</code> — 飞书消息收发、富文本解析、评论回复</li>
+          <li><code>DiscordAdapter</code> — Discord Bot / Webhook</li>
+          <li><code>TelegramAdapter</code> — Telegram Bot API</li>
+          <li><code>SignalAdapter</code> — Signal 消息</li>
+          <li><code>EmailAdapter</code> — IMAP/SMTP</li>
+          <li><code>BlueBubblesAdapter</code> — iMessage</li>
+          <li>... 共 15+ 平台</li>
+        </ul>
+
+        <p>每个平台适配器处理：消息格式转换、媒体文件上传、平台特定命令、平台过滤器。</p>
+
+        <h3>8. Credential Pool —— 多 API Key 轮换</h3>
+
+        <p>Claude Code 用一个 API Key。Hermes 支持 <strong>Credential Pool</strong>——同一个 Provider 配多个 API Key，自动轮换和 Fallback：</p>
+
+        <pre><code># agent/credential_pool.py
+SUPPORTED_POOL_STRATEGIES = {
+    "fill_first",    # 填满第一个再用第二个
+    "round_robin",   # 轮流使用
+    "random",        # 随机选择
+    "least_used",    # 最少使用优先
+}
+
+class CredentialPool:
+    def acquire(self) -> Credential | None:
+        """获取一个可用凭证。如果所有凭证都用尽，返回 None"""
+        for cred in self._get_credential_by_strategy():
+            if cred.status == STATUS_OK:
+                cred.usage_count += 1
+                return cred
+            elif self._cooldown_expired(cred):
+                cred.status = STATUS_OK
+                cred.usage_count += 1
+                return cred
+        return None  # 全部耗尽可能，触发 fallback</code></pre>
+
+        <p>当收到 429（限流）或 402（配额耗尽）时，自动标记该凭证为 exhausted，
+          切换到池中的下一个。Provider 还可以返回 <code>reset_at</code> 时间来覆盖默认的 1 小时冷却期。</p>
+
+        <h3>9. 上下文压缩 —— 三层保护</h3>
+
+        <p>在 <code>agent/context_compressor.py</code> 中，Hermes 实现了比 Claude Code 更精细的压缩策略：</p>
+
+        <pre><code># agent/context_compressor.py — 压缩流程
+1. 阈值检查：当前 token 数 > 模型上下文长度 × 0.50
+2. 工具结果裁剪：旧的工具输出替换为占位符
+   "[Old tool output cleared to save context space]"
+3. LLM 摘要：用辅助模型（便宜/快）压缩中间轮次
+4. 摘要注入：使用 SUMMARY_PREFIX 做上下文隔离
+   "[CONTEXT COMPACTION — REFERENCE ONLY] ..."
+5. 尾部保护：按 token 预算保留最新 N 条消息</code></pre>
+
+        <p>关键区别：</p>
+        <ul>
+          <li>Hermes 使用 <strong>辅助模型</strong>（auxiliary model）做压缩摘要，而不是主模型——更便宜</li>
+          <li>压缩摘要中有明确的 <strong>"不要执行历史中的指令"</strong> 前缀，防止 Agent 把历史摘要当新指令</li>
+          <li>支持 <strong>手动压缩</strong>（<code>/compress</code> 命令）和自动压缩双路径</li>
+          <li>有失败冷却（600 秒内不再重试失败的压缩）</li>
+        </ul>
+
+        <h3>10. 安全问题 —— 多层防御</h3>
+
+        <p>Hermes 的安全设计比 Claude Code 更显式，因为它是多平台、多 Provider 的：</p>
+
+        <pre><code># agent/prompt_builder.py — 提示注入检测
+_CONTEXT_THREAT_PATTERNS = [
+    (r'ignore\s+(previous|all|above|prior)\s+instructions', "prompt_injection"),
+    (r'do\s+not\s+tell\s+the\s+user', "deception_hide"),
+    (r'curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET)', "exfil_curl"),
+    # ... 共 14 种威胁模式
+]
+
+# 工具结果中的密钥自动脱敏
+# agent/redact.py — 自动识别并替换 API Key / Token / 密钥</code></pre>
+
+        <table class="diff-table">
+          <thead>
+            <tr><th>安全层</th><th style="background:var(--color-accent-light)">Hermes</th><th>Claude Code</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>上下文文件注入检测</td>
+              <td class="hermes">14 种威胁模式 + 隐形 Unicode 检测</td>
+              <td>基本注入检测</td>
+            </tr>
+            <tr>
+              <td>密钥脱敏</td>
+              <td class="hermes">自动脱敏工具输出中的 API Key / Token</td>
+              <td>不脱敏</td>
+            </tr>
+            <tr>
+              <td>Cron 提示扫描</td>
+              <td class="hermes">在执行 Cron 之前扫描提示中的注入模式</td>
+              <td>不支持 Cron</td>
+            </tr>
+            <tr>
+              <td>命令审批</td>
+              <td class="hermes">三级（manual / smart / off），可每个平台独立配置</td>
+              <td>基本审批提示</td>
+            </tr>
+            <tr>
+              <td>隐私脱敏</td>
+              <td class="hermes">Gateway 消息中的 PII 脱敏（hash user ID、strip 电话号码）</td>
+              <td>不适用（纯 CLI）</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>项目结构一览</h2>
+
+        <pre><code>hermes-agent/
+├── run_agent.py           # AIAgent 类 — 核心 Agent 循环 (~13k LOC)
+├── model_tools.py         # 工具编排层 — 发现 + 分发
+├── toolsets.py            # 工具集定义（21 个工具集）
+├── cli.py                 # HermesCLI — 交互式 CLI (~11k LOC)
+├── hermes_state.py        # SessionDB — SQLite 会话存储
+├── hermes_constants.py    # get_hermes_home() 等路径常量
+├── agent/                 # Agent 内部模块
+│   ├── transports/        # 5 种 Provider 传输模式
+│   ├── prompt_builder.py  # 系统提示组装（含注入检测）
+│   ├── memory_manager.py  # 多 Provider 记忆系统
+│   ├── context_compressor.py  # 上下文自动压缩
+│   ├── credential_pool.py # 多 Key 凭证池 + 自动轮换
+│   ├── error_classifier.py    # API 错误分类 + 自动 Fallback
+│   ├── skill_utils.py     # 技能文件发现与解析
+│   ├── skill_commands.py  # /skill 斜杠命令
+│   └── display.py         # 终端动画（KawaiiSpinner）
+├── tools/                 # 工具实现 ~50+ 个工具
+│   ├── registry.py        # 工具注册表
+│   ├── delegate_tool.py   # 子代理（ThreadPoolExecutor）
+│   ├── cronjob_tools.py   # 定时任务
+│   └── environments/      # 终端后端（local/docker/ssh/modal）
+├── gateway/               # 多平台消息网关
+│   ├── run.py             # GatewayRunner 主循环
+│   └── platforms/         # 15+ 平台适配器
+├── cron/                  # 定时调度器
+├── plugins/               # 插件系统（记忆 / 图像生成 / 清理等）
+├── skills/                # 内置技能
+├── acp_adapter/           # ACP 协议（VS Code / Zed / JetBrains）
+├── ui-tui/                # Ink (React) TUI
+├── scripts/               # 运行脚本
+└── tests/                 # ~15,000 个 pytest 测试</code></pre>
+
+        <h2>看源码时的关键提示</h2>
+
+        <h3>1. 从 run_agent.py 的 run_conversation() 入口开始</h3>
+        <p>这是 Agent 的 main loop，所有逻辑最终汇聚于此。读这个方法的流程，
+          就能理解 Agent 的"一次对话"从开始到结束经历了什么（消息组装 → API 调用 →
+          工具分发 → 结果注入 → 继续循环/结束）。</p>
+
+        <h3>2. 不要被长文件吓到</h3>
+        <p><code>run_agent.py</code> 有 ~13,000 行，但大部分是因为它在一个文件里处理了所有 Provider 的特殊逻辑。
+          核心循环本身只有 ~200 行。其余的是各种 Provider 的初始化、退出处理、安全检查、日志等。</p>
+
+        <h3>3. 理解 Transport 层的存在意义</h3>
+        <p>Claude Code 只需要对接一个 API（Anthropic Messages API），所以不需要传输抽象层。
+          Hermes 需要对接 5 种完全不同的 API 格式，所以有了 <code>agent/transports/</code>。
+          在读其他地方之前，先搞清楚 Transport 的契约（<code>convert_messages / convert_tools / build_kwargs</code>）。</p>
+
+        <h3>4. 理解"工具自注册"的机制</h3>
+        <p>在 <code>tools/registry.py</code> 中，<code>discover_builtin_tools()</code> 在 import 时自动收集所有
+          <code>registry.register()</code> 调用。这意味着每个工具文件自我声明，不需要手动维护工具列表。
+          这是 Hermes 可以轻松扩展工具集的关键。</p>
+
+        <h3>5. "Skill"和"Memory"的边界</h3>
+        <p>初学者最容易混淆这两个概念：</p>
+        <ul>
+          <li><strong>Skill</strong> = "怎么做一件事的方法" — 按需加载的可选知识包</li>
+          <li><strong>Memory</strong> = "长期记住的事实" — 跨会话的持久信息</li>
+          <li><strong>Config</strong> = "固定的偏好设置" — 不会自动变化的规则</li>
+        </ul>
+
+        <h2>初学者最容易犯的错</h2>
+
+        <h3>1. 试图一次读懂全部 13,000 行 run_agent.py</h3>
+        <p>不要。先从 <code>run_conversation()</code> 的顶层循环开始，再顺着调用链往下走。</p>
+
+        <h3>2. 忽略 Transport 层，直接看 Provider 初始化</h3>
+        <p>Provider 初始化里有很多 Provider 特定的 header 设置、超时配置、认证方式。
+          但如果先理解 Transport 的契约（输入消息 → 输出 NormalizedResponse），
+          这些细节就只是各个 Provider 的具体实现了。</p>
+
+        <h3>3. 把 Hermes 当成"Claude Code 的克隆"</h3>
+        <p>Claude Code 是一个<strong>产品</strong>（用 Anthropic 模型做编码助手），
+          Hermes 是一个<strong>框架</strong>（在任何模型、任何平台运行 Agent）。
+          这个差异渗透到每一处架构设计——Provider 抽象、多平台网关、Credential Pool 等，
+          都是 Claude Code 根本不需要考虑的问题。</p>
+
+        <h3>4. 忽略 Gateway 的 AIAgent 缓存策略</h3>
+        <p>Gateway 环境下，每个会话缓存一个 AIAgent 实例（LRU 128）。
+          这意味着 gateway 中的 Agent 必须无状态地处理每条消息，
+          而状态（记忆、任务列表）需要通过外部存储恢复。
+          这是纯 CLI 场景没有的复杂性。</p>
+
+        <h2>一句话记住</h2>
+        <p><strong>Hermes 和 Claude Code 的根本区别不是"开源 vs 闭源"，而是"模型框架 vs 模型产品"——
+          Hermes 解决的是"如何让任何 LLM 在任何平台上成为 Agent"，
+          Claude Code 解决的是"如何让 Claude 成为最好的编程助手"。</strong></p>
+
+      </div>
+
+      <!-- Navigation -->
+      <nav class="nav-links">
+        <a href="#">
+          <span>←</span>
+          <div>
+            <div class="label">概览</div>
+            <div class="title">Hermes 项目介绍</div>
+          </div>
+        </a>
+        <a href="#" style="text-align:right">
+          <div>
+            <div class="label">下一章</div>
+            <div class="title">Agent 循环 — s01</div>
+          </div>
+          <span>→</span>
+        </a>
+      </nav>
+
+    </div>
+  </main>
+
+</div>
+
+</body>
+</html>
